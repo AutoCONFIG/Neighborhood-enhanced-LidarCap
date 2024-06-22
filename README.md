@@ -1,6 +1,6 @@
 # Download dataset
 
-1. Download LiDARHuman26m and wight file from link:
+1. Download LiDARHuman26m and wight file from link: https://pan.baidu.com/s/13Du0nhivNs83EJzUZ7yAdA  Code:13yp
 2. Download Cimi4D and HSC4D from link: https://smpl.is.tue.mpg.de/
 
 If you want to extract 3BN and 3SN from your own data, refer to `sample/noise_select`.
