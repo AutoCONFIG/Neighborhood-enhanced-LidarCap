@@ -25,6 +25,27 @@ class CUDADetector:
         self.pytorch_info = {}
         self.tensorflow_info = {}
         self.conda_info = {}
+        
+        # 设置环境变量以减少警告
+        self._setup_environment_variables()
+
+    def _setup_environment_variables(self):
+        """设置环境变量以减少警告输出"""
+        # TensorFlow日志抑制
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+        
+        # 抑制XLA警告
+        os.environ['XLA_FLAGS'] = '--xla_gpu_cuda_data_dir=/usr/local/cuda'
+        
+        # 抑制NUMA警告
+        os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
+        
+        # 抑制oneDNN警告
+        os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+        
+        # 抑制CUDA重复注册警告
+        os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     def detect_system_info(self):
         """检测系统基本信息"""
@@ -256,6 +277,13 @@ class CUDADetector:
         """检测TensorFlow环境"""
         print_header("TensorFlow环境检测")
 
+        # 设置TensorFlow日志级别以减少警告输出
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+        
+        # 抑制NUMA节点警告
+        os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
+
         try:
             import tensorflow as tf
             self.tensorflow_info['installed'] = True
@@ -358,8 +386,9 @@ class CUDADetector:
             '80': 'Ampere (RTX 30系列)',
             '86': 'Ampere (RTX 30系列)',
             '87': 'Ampere (Jetson)',
+            '89': 'Ada Lovelace (RTX 40系列)',
             '90': 'Hopper (H100)',
-            '120': 'Ada Lovelace (RTX 40/50系列)'
+            '120': 'Blackwell (RTX 50系列)'
         }
 
         arch_name = capability_info.get(compute_capability, f"未知架构 (sm_{compute_capability})")
@@ -371,9 +400,13 @@ class CUDADetector:
             if hasattr(torch.cuda, 'get_arch_list'):
                 supported_archs = torch.cuda.get_arch_list()
                 arch_supported = any(compute_capability in arch for arch in supported_archs)
-                print(f"      PyTorch支持: {'是' if arch_supported else '否'}")
-                if not arch_supported:
+                
+                if arch_supported:
+                    print(f"      PyTorch支持: 是")
+                else:
+                    print(f"      PyTorch支持: 否 (但可通过PTX JIT编译支持)")
                     print(f"        支持的架构: {supported_archs}")
+                    print(f"        注意: RTX 40系列(sm_89)可通过PTX JIT编译正常工作")
 
     def run_tensorflow_compatibility_test(self):
         """运行TensorFlow兼容性测试"""
@@ -384,6 +417,13 @@ class CUDADetector:
             return False
 
         try:
+            # 设置TensorFlow日志级别以减少警告输出
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+            os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+            
+            # 抑制NUMA节点警告
+            os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
+            
             import tensorflow as tf
             test_results = {}
 
@@ -717,84 +757,6 @@ class CUDADetector:
 
         except Exception as e:
             print(f"显存测试失败: {e}")
-
-    def check_available_versions(self):
-        """检查可用的PyTorch、TensorFlow和CUDA版本"""
-        print_header("可用版本检查")
-
-        print_subheader("PyTorch可用版本")
-
-        # 检查conda是否可用
-        result, error = self._run_conda_command(["search", "pytorch", "-c", "pytorch"], timeout=30)
-
-        if result and result.returncode == 0:
-            versions = set()
-            for line in result.stdout.split('\n'):
-                if 'pytorch' in line and not line.startswith('#'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        version = parts[1]
-                        if re.match(r'\d+\.\d+\.\d+', version):
-                            versions.add(version)
-
-            if versions:
-                print("最近的PyTorch版本:")
-                for version in sorted(versions, reverse=True)[:10]:
-                    print(f"  - pytorch=={version}")
-            else:
-                print("未找到PyTorch版本信息")
-        else:
-            print(f"无法检查PyTorch版本: {error if error else '命令执行失败'}")
-
-        print_subheader("TensorFlow可用版本")
-
-        # 检查TensorFlow版本
-        result, error = self._run_conda_command(["search", "tensorflow", "-c", "conda-forge"], timeout=30)
-
-        if result and result.returncode == 0:
-            tf_versions = set()
-            for line in result.stdout.split('\n'):
-                if 'tensorflow' in line and not line.startswith('#'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        version = parts[1]
-                        if re.match(r'\d+\.\d+\.\d+', version):
-                            tf_versions.add(version)
-
-            if tf_versions:
-                print("最近的TensorFlow版本:")
-                for version in sorted(tf_versions, reverse=True)[:10]:
-                    print(f"  - tensorflow=={version}")
-        else:
-            print("TensorFlow版本检查可通过pip获得:")
-            print("  - pip install tensorflow (最新CPU版)")
-            print("  - pip install tensorflow-gpu (如果还可用)")
-
-        print_subheader("CUDA版本支持")
-
-        # 检查pytorch-cuda包
-        result, error = self._run_conda_command(["search", "pytorch-cuda", "-c", "pytorch", "-c", "nvidia"], timeout=30)
-
-        if result and result.returncode == 0:
-            cuda_versions = set()
-            for line in result.stdout.split('\n'):
-                if 'pytorch-cuda' in line and not line.startswith('#'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        version = parts[1]
-                        if re.match(r'\d+\.\d+', version):
-                            cuda_versions.add(version)
-
-            if cuda_versions:
-                print("可用的CUDA版本:")
-                for version in sorted(cuda_versions, reverse=True):
-                    print(f"  - pytorch-cuda={version}")
-
-        # TensorFlow CUDA兼容性说明
-        print("\nTensorFlow CUDA兼容性:")
-        print("  - TensorFlow 2.15+: 支持CUDA 12.x")
-        print("  - TensorFlow 2.10-2.14: 支持CUDA 11.x")
-        print("  - TensorFlow 2.6-2.9: 支持CUDA 11.x")
 
     def check_conda_environment(self):
         """检查conda环境"""
@@ -1187,7 +1149,7 @@ class CUDADetector:
     def run_full_detection(self):
         """运行完整检测流程"""
         print("=" * 60)
-        print("CUDA环境全面检测工具 v2.0")
+        print("CUDA环境全面检测工具 v3.0")
         print("支持PyTorch + TensorFlow双框架检测")
         print("=" * 60)
 
@@ -1202,8 +1164,7 @@ class CUDADetector:
         if has_driver and (has_pytorch_cuda or has_tensorflow_gpu):
             self.run_comprehensive_test()
 
-        # 检查可用版本和环境
-        self.check_available_versions()
+        # 检查conda环境
         self.check_conda_environment()
 
         # 生成建议
